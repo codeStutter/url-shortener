@@ -40,8 +40,7 @@ def _wait_for_health(base_url: str, timeout: float = 15.0) -> None:
     raise RuntimeError(f"Server did not become healthy in time: {last_error}")
 
 
-@pytest.fixture(scope="session")
-def live_server(tmp_path_factory) -> str:
+def _spawn_server(tmp_path_factory, env_overrides: dict[str, str] | None = None):
     port = _free_port()
     base_url = f"http://127.0.0.1:{port}"
     db_path = tmp_path_factory.mktemp("data") / "test.db"
@@ -49,10 +48,12 @@ def live_server(tmp_path_factory) -> str:
     env = os.environ.copy()
     env["DATABASE_PATH"] = str(db_path)
     env["BASE_URL"] = base_url
-    # Generous limits: reliability tests exercise the limiter explicitly via
-    # their own low-limit server instance instead of this shared one.
+    # Generous by default: reliability tests that need to actually trip the
+    # limiter override these via env_overrides on their own server instance,
+    # rather than affecting the shared one every other test relies on.
     env["CREATE_RATE_LIMIT"] = "1000/minute"
     env["REDIRECT_RATE_LIMIT"] = "1000/minute"
+    env.update(env_overrides or {})
 
     proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", str(port)],
@@ -73,8 +74,28 @@ def live_server(tmp_path_factory) -> str:
             proc.kill()
 
 
+@pytest.fixture(scope="session")
+def live_server(tmp_path_factory) -> str:
+    yield from _spawn_server(tmp_path_factory)
+
+
+@pytest.fixture()
+def rate_limited_server(tmp_path_factory) -> str:
+    """A dedicated server instance with a deliberately low create limit, so
+    the rate-limit test can trip it without affecting every other test that
+    shares `live_server`."""
+    yield from _spawn_server(tmp_path_factory, {"CREATE_RATE_LIMIT": "3/minute"})
+
+
 @pytest.fixture()
 def api_context(playwright, live_server):
     request_context = playwright.request.new_context(base_url=live_server)
+    yield request_context
+    request_context.dispose()
+
+
+@pytest.fixture()
+def rate_limited_api_context(playwright, rate_limited_server):
+    request_context = playwright.request.new_context(base_url=rate_limited_server)
     yield request_context
     request_context.dispose()

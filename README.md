@@ -4,7 +4,8 @@ A working URL-shortener service built from scratch. Built as an engineering-proc
 demonstration — see `docs/` for the architecture, the decomposition/execution/validation
 record for three change scenarios (greenfield, brownfield, ambiguous), and the testing
 approach. This README, like the rest of `docs/`, evolves with the system — currently
-reflects the state after Scenario 1 (core create/redirect APIs).
+reflects the state after Scenario 2 (core APIs + custom aliases, rate limiting, soft
+delete, background click logging).
 
 ## Stack
 
@@ -49,10 +50,14 @@ See `docs/TESTING.md` for the full testing approach, known limitations, and trad
 
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/api/urls` | Create a short URL |
+| `POST` | `/api/urls` | Create a short URL (optional `custom_alias`, `expiry_days`) |
 | `GET` | `/api/urls/{code}` | Metadata for a short URL |
+| `DELETE` | `/api/urls/{code}` | Soft-delete a short URL |
 | `GET` | `/{code}` | Redirect to the original URL |
 | `GET` | `/api/health` | Liveness/readiness check |
+
+`POST /api/urls` and `GET /{code}` are rate-limited (`CREATE_RATE_LIMIT` /
+`REDIRECT_RATE_LIMIT` in `.env`); exceeding the limit returns `429`.
 
 Full request/response schemas: http://localhost:8000/docs (once the app is running).
 
