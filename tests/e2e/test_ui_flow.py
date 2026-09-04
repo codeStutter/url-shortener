@@ -26,6 +26,21 @@ def test_create_and_follow_short_link(page, live_server) -> None:
     assert heading.inner_text() == "You made it!"
 
 
+def test_analytics_link_leads_to_analytics_json(page, live_server) -> None:
+    target_url = f"{live_server}/demo/target"
+
+    page.goto(live_server + "/")
+    page.fill("#original_url", target_url)
+    page.click("button[type=submit]")
+    page.locator("#result").wait_for(state="visible")
+
+    analytics_href = page.locator("#analytics-link").get_attribute("href")
+    assert analytics_href.endswith("/analytics")
+
+    page.goto(live_server + analytics_href)
+    assert '"total_clicks"' in page.locator("body").inner_text()
+
+
 def test_invalid_url_shows_inline_error(page, live_server) -> None:
     page.goto(live_server + "/")
     # Switch the field to type=text so the browser's own <input type=url>

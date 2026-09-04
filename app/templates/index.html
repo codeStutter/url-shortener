@@ -26,6 +26,7 @@
     <div id="result" hidden>
       <p>Short link:</p>
       <a id="short-link" href="#" target="_blank" rel="noopener"></a>
+      <p><a id="analytics-link" href="#">View analytics (JSON)</a></p>
     </div>
 
     <p id="error" class="error" hidden></p>
@@ -35,6 +36,7 @@
     const form = document.getElementById("shorten-form");
     const result = document.getElementById("result");
     const shortLinkEl = document.getElementById("short-link");
+    const analyticsLinkEl = document.getElementById("analytics-link");
     const errorEl = document.getElementById("error");
 
     form.addEventListener("submit", async (event) => {
@@ -69,6 +71,7 @@
       const data = await response.json();
       shortLinkEl.href = data.short_url;
       shortLinkEl.textContent = data.short_url;
+      analyticsLinkEl.href = `/api/urls/${data.code}/analytics`;
       result.hidden = false;
     });
   </script>
