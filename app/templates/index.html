@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>URL Shortener</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <main>
+    <h1>URL Shortener</h1>
+
+    <form id="shorten-form">
+      <label for="original_url">Long URL</label>
+      <input id="original_url" name="original_url" type="url" placeholder="https://example.com/some/long/path" required />
+
+      <label for="expiry_days">Expires in (days, optional)</label>
+      <input id="expiry_days" name="expiry_days" type="number" min="0" max="3650" placeholder="never" />
+
+      <button type="submit">Shorten</button>
+    </form>
+
+    <div id="result" hidden>
+      <p>Short link:</p>
+      <a id="short-link" href="#" target="_blank" rel="noopener"></a>
+    </div>
+
+    <p id="error" class="error" hidden></p>
+  </main>
+
+  <script>
+    const form = document.getElementById("shorten-form");
+    const result = document.getElementById("result");
+    const shortLinkEl = document.getElementById("short-link");
+    const errorEl = document.getElementById("error");
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      errorEl.hidden = true;
+      result.hidden = true;
+
+      const original_url = document.getElementById("original_url").value;
+      const expiryRaw = document.getElementById("expiry_days").value;
+      const body = { original_url };
+      if (expiryRaw !== "") {
+        body.expiry_days = Number(expiryRaw);
+      }
+
+      const response = await fetch("/api/urls", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) {
+        const detail = await response.json().catch(() => ({}));
+        errorEl.textContent = detail.detail || `Request failed (${response.status})`;
+        errorEl.hidden = false;
+        return;
+      }
+
+      const data = await response.json();
+      shortLinkEl.href = data.short_url;
+      shortLinkEl.textContent = data.short_url;
+      result.hidden = false;
+    });
+  </script>
+</body>
+</html>
