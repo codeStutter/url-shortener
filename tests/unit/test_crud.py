@@ -89,11 +89,11 @@ def test_soft_delete_deactivates_and_is_idempotent_on_missing(db_session) -> Non
     assert crud.soft_delete(db_session, "doesnotexist") is False
 
 
-def test_increment_click_count_background_uses_its_own_session(tmp_path, monkeypatch) -> None:
-    # increment_click_count_background opens app.db.SessionLocal directly
-    # (it can't reuse a request-scoped session — see the docstring on that
-    # function). Point SessionLocal at a throwaway engine sharing the same
-    # Base metadata, to exercise that exact code path in isolation.
+def test_record_click_background_uses_its_own_session(tmp_path, monkeypatch) -> None:
+    # record_click_background opens app.db.SessionLocal directly (it can't
+    # reuse a request-scoped session — see the docstring on that function).
+    # Point SessionLocal at a throwaway engine sharing the same Base
+    # metadata, to exercise that exact code path in isolation.
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
 
@@ -107,14 +107,46 @@ def test_increment_click_count_background_uses_its_own_session(tmp_path, monkeyp
     session = test_session_local()
     try:
         created = crud.create_short_url(session, "https://example.com/j", expiry_days=None)
-        code = created.code
+        short_url_id, code = created.id, created.code
     finally:
         session.close()
 
-    crud.increment_click_count_background(code)
+    crud.record_click_background(short_url_id, code, "https://ref.example", "pytest-agent", "abc123")
 
     session = test_session_local()
     try:
-        assert crud.get_by_code(session, code).click_count == 1
+        refreshed = crud.get_by_code(session, code)
+        assert refreshed.click_count == 1
+        analytics = crud.get_analytics(session, refreshed)
+        assert analytics["total_clicks"] == 1
+        assert analytics["top_referrers"] == [{"referrer": "https://ref.example", "count": 1}]
     finally:
         session.close()
+
+
+def test_get_analytics_aggregates_across_referrers_and_days(db_session) -> None:
+    created = crud.create_short_url(db_session, "https://example.com/k", expiry_days=None)
+
+    crud.record_click(db_session, created.id, created.code, "https://a.example", "ua", "hash1")
+    crud.record_click(db_session, created.id, created.code, "https://a.example", "ua", "hash2")
+    crud.record_click(db_session, created.id, created.code, "https://b.example", "ua", "hash3")
+    crud.record_click(db_session, created.id, created.code, None, "ua", "hash4")  # direct traffic
+
+    analytics = crud.get_analytics(db_session, created)
+
+    assert analytics["total_clicks"] == 4
+    assert analytics["clicks_last_24h"] == 4
+    assert len(analytics["clicks_by_day"]) == 7
+    assert sum(day["count"] for day in analytics["clicks_by_day"]) == 4
+    assert analytics["top_referrers"][0] == {"referrer": "https://a.example", "count": 2}
+    assert {"referrer": "direct", "count": 1} in analytics["top_referrers"]
+
+
+def test_get_analytics_with_no_clicks_is_all_zero(db_session) -> None:
+    created = crud.create_short_url(db_session, "https://example.com/l", expiry_days=None)
+    analytics = crud.get_analytics(db_session, created)
+
+    assert analytics["total_clicks"] == 0
+    assert analytics["clicks_last_24h"] == 0
+    assert all(day["count"] == 0 for day in analytics["clicks_by_day"])
+    assert analytics["top_referrers"] == []

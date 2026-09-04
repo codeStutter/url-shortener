@@ -1,11 +1,10 @@
 # URL Shortener — Prototype
 
-A working URL-shortener service built from scratch. Built as an engineering-process
-demonstration — see `docs/` for the architecture, the decomposition/execution/validation
-record for three change scenarios (greenfield, brownfield, ambiguous), and the testing
-approach. This README, like the rest of `docs/`, evolves with the system — currently
-reflects the state after Scenario 2 (core APIs + custom aliases, rate limiting, soft
-delete, background click logging).
+A working URL-shortener service built from scratch: core create/redirect APIs, click
+analytics, and reliability features (rate limiting, expiry, race-safe custom aliases,
+soft delete). Built as an engineering-process demonstration — see `docs/` for the
+architecture, the decomposition/execution/validation record for three change scenarios
+(greenfield, brownfield, ambiguous), and the testing approach.
 
 ## Stack
 
@@ -52,7 +51,8 @@ See `docs/TESTING.md` for the full testing approach, known limitations, and trad
 |---|---|---|
 | `POST` | `/api/urls` | Create a short URL (optional `custom_alias`, `expiry_days`) |
 | `GET` | `/api/urls/{code}` | Metadata for a short URL |
-| `DELETE` | `/api/urls/{code}` | Soft-delete a short URL |
+| `GET` | `/api/urls/{code}/analytics` | Click analytics: 24h/7-day counts, top referrers |
+| `DELETE` | `/api/urls/{code}` | Soft-delete a short URL (history stays queryable) |
 | `GET` | `/{code}` | Redirect to the original URL |
 | `GET` | `/api/health` | Liveness/readiness check |
 

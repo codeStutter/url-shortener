@@ -1,8 +1,8 @@
 # Architecture Overview
 
 > This document evolves with the system. It currently reflects the state after
-> Scenario 2 (brownfield reliability hardening). See `docs/scenarios/` for the
-> change-by-change history.
+> Scenario 3 (ambiguous analytics requirements) — the full three-scenario build. See
+> `docs/scenarios/` for the change-by-change history.
 
 ## Components
 
@@ -13,13 +13,14 @@
                   │  │ SlowAPI rate limiter   │ │  per-route @limiter.limit(...)
                   │  ├───────────────────────┤ │
                   │  │ routes/urls.py        │ │  POST/GET/DELETE /api/urls...
+                  │  │ routes/analytics.py   │ │  GET /api/urls/{code}/analytics
                   │  │ routes/redirect.py    │ │  GET /{code} -> 302 (+ BackgroundTask)
                   │  │ routes/health.py      │ │  GET /api/health
                   │  └───────────┬───────────┘ │
                   │              │ crud.py       │  (query/command layer)
                   │              ▼               │
                   │  ┌───────────────────────┐ │
-                  │  │ SQLAlchemy models      │ │  models.py: ShortUrl (+ is_active)
+                  │  │ SQLAlchemy models      │ │  models.py: ShortUrl, ClickEvent
                   │  └───────────┬───────────┘ │
                   └──────────────┼──────────────┘
                                   ▼
@@ -47,6 +48,8 @@
 - **`app/exceptions.py`** — small domain exceptions (currently `AliasConflictError`)
   raised by `crud.py` and translated to HTTP status codes in the route layer, keeping
   `crud.py` free of any FastAPI/HTTP imports.
+- **`app/privacy.py`** — a single-purpose helper (`hash_ip`) so "never persist a raw IP"
+  is enforced at one call site, not something every future caller has to remember.
 
 ## Control flow
 
@@ -65,10 +68,18 @@ Response includes the full short link (`{BASE_URL}/{code}`).
 
 **Redirect:**
 `GET /{code}` → rate limit check (`REDIRECT_RATE_LIMIT`) → look up the row → `404` if
-missing or soft-deleted (`is_active = false`); `410` if past `expires_at` → schedule a
-`BackgroundTask` to increment the click counter (using its own DB session, since the
-request's session may be closed by the time the task runs) → `302` to `original_url`,
-sent immediately — the click write never adds to redirect latency.
+missing or soft-deleted (`is_active = false`); `410` if past `expires_at` → capture
+`referer`/`user-agent` headers and the hashed client IP from the live request → schedule a
+`BackgroundTask` (`crud.record_click_background`, its own DB session, since the request's
+session may be closed by the time the task runs) that inserts a `ClickEvent` row and
+increments the click counter in one commit → `302` to `original_url`, sent immediately —
+the analytics write never adds to redirect latency.
+
+**Analytics:**
+`GET /api/urls/{code}/analytics` → `404` if the code doesn't exist (soft-deleted links
+still resolve here, since their `ClickEvent` rows aren't removed) → `crud.get_analytics`
+computes a 24h rolling count, a zero-filled 7-day daily series, and the top 5 referrers
+(`None` grouped as `"direct"`) from the `ClickEvent` table.
 
 **Delete:**
 `DELETE /api/urls/{code}` → soft delete (`is_active = false`); the row and its click
@@ -88,3 +99,6 @@ history are kept, not removed.
 | Soft delete (`is_active` flag) instead of hard delete | Preserves click history for a retired link, which Scenario 3's analytics depend on | Deleted rows accumulate in the table forever — no purge/archival job exists (documented limitation) |
 | Click logging via `BackgroundTasks` with its own DB session | Redirect response is sent before the DB write happens, so click logging can never slow down a redirect | If the process crashes between sending the redirect and the background task running, that one click is lost — acceptable for a best-effort counter, would need a durable queue if click counts had to be exact |
 | In-memory `slowapi` rate limiting | No external dependency (Redis) needed to run the prototype | Limits are per-process and reset on restart; not correct across multiple app instances — documented swap-in is a Redis storage backend, which `slowapi` supports via config |
+| Store per-click `ClickEvent` rows, not just aggregate counters | Time-series and referrer breakdowns need event-level data; aggregates can be derived from events but not the reverse | More storage than a counter-only design; no retention/purge policy exists yet (see `docs/scenarios/03-ambiguous-analytics-requirements.md`) |
+| Hash the client IP (unsalted SHA-256) before storing, and never expose it via any API | No auth/consent flow exists in this prototype, so the safer default is not persisting PII in recoverable form | Unsalted means the same IP always hashes the same way — a stable fingerprint within this dataset, not strong anonymization; a per-day rotating salt is the documented next step if this became a real product |
+| `ShortUrl.click_count` (fast total) kept alongside the `ClickEvent` log, updated in the same commit | Metadata reads stay O(1) instead of a `COUNT(*)` over events every time | Two representations of "how many clicks" that must be kept in sync by discipline (one shared function, `crud.record_click`, is the only writer of both) rather than by a DB constraint |

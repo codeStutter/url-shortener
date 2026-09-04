@@ -1,7 +1,7 @@
 # Testing Approach, Limitations, and Trade-offs
 
-> Evolves alongside the system. Current as of Scenario 2 (brownfield reliability
-> hardening).
+> Evolves alongside the system. Current as of Scenario 3 (ambiguous analytics
+> requirements) — the full three-scenario build.
 
 ## Approach
 
@@ -35,6 +35,13 @@ and asserts exactly one succeeds — this is what actually validates the
 attempt-insert-and-catch-conflict design decision in `docs/scenarios/02-brownfield-reliability-hardening.md`,
 rather than just asserting it in prose.
 
+Analytics tests (`tests/api/test_analytics_api.py`, `tests/unit/test_crud.py`) cover both
+directions of the write/read split: unit tests seed `ClickEvent` rows directly and assert
+the aggregation logic (referrer ranking, `None` → `"direct"`, zero-filled day buckets),
+while the API tests drive a real click through the live server and poll the analytics
+endpoint until the backgrounded write lands — proving the two code paths actually agree,
+not just that each one is individually correct in isolation.
+
 ## Running the suite
 
 ```bash
@@ -60,10 +67,14 @@ never blocks fast feedback on the majority of the test suite.
   never alters existing ones, so a schema change like Scenario 2's new `is_active` column
   requires a fresh dev DB (gitignored, disposable) rather than an in-place migration.
   Alembic is the documented swap-in for a real deployment.
-- **Rate limiting and soft-deleted rows have no cleanup story.** The limiter's counters
-  live only in process memory (see Trade-offs below); soft-deleted rows accumulate with no
-  purge job. Both are fine at prototype scale and both are named here rather than
-  discovered later.
+- **Rate limiting, soft-deleted rows, and click events have no cleanup story.** The
+  limiter's counters live only in process memory (see Trade-offs below); soft-deleted
+  short URLs and their click history accumulate with no purge/retention job. All fine at
+  prototype scale, all named here rather than discovered later.
+- **IP hashing is unsalted (`app/privacy.py`).** A real IP is never stored, but the same
+  IP always hashes to the same value, so it's a stable fingerprint within this dataset —
+  not a strong anonymization guarantee. A production system would rotate a per-day salt or
+  drop IP capture entirely.
 - **No load/performance testing.** Correctness and behavior are covered; throughput and
   latency under load are not measured or claimed.
 - **Tests assume a free local port and the ability to spawn a subprocess.** This is normal

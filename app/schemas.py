@@ -28,3 +28,21 @@ class URLResponse(BaseModel):
     expires_at: datetime | None
     click_count: int
     active: bool
+
+
+class DailyClicks(BaseModel):
+    date: str  # YYYY-MM-DD
+    count: int
+
+
+class ReferrerCount(BaseModel):
+    referrer: str
+    count: int
+
+
+class AnalyticsResponse(BaseModel):
+    code: str
+    total_clicks: int
+    clicks_last_24h: int
+    clicks_by_day: list[DailyClicks]
+    top_referrers: list[ReferrerCount]

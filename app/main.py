@@ -12,7 +12,7 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from app.db import init_db
 from app.rate_limit import limiter
-from app.routes import health, redirect, urls
+from app.routes import analytics, health, redirect, urls
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -51,5 +51,6 @@ def demo_target() -> HTMLResponse:
 # Routers: API routes first, then the catch-all "/{code}" redirect last so it
 # never shadows a more specific path.
 app.include_router(urls.router)
+app.include_router(analytics.router)
 app.include_router(health.router)
 app.include_router(redirect.router)
