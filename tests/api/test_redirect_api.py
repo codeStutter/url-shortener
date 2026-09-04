@@ -9,14 +9,27 @@ def test_redirect_returns_302_to_original_url(api_context, live_server) -> None:
 
 
 def test_redirect_increments_click_count(api_context, live_server) -> None:
+    # Click logging runs as a FastAPI BackgroundTask *after* the redirect
+    # response is sent (see app/routes/redirect.py), so the counter update
+    # isn't guaranteed to be visible the instant the redirect call returns.
+    # Poll briefly instead of asserting immediately, to avoid a flaky test.
+    import time
+
     target = f"{live_server}/demo/target"
     created = api_context.post("/api/urls", data={"original_url": target}).json()
 
     api_context.get(f"/{created['code']}", max_redirects=0)
     api_context.get(f"/{created['code']}", max_redirects=0)
 
-    metadata = api_context.get(f"/api/urls/{created['code']}").json()
-    assert metadata["click_count"] == 2
+    deadline = time.time() + 2
+    click_count = None
+    while time.time() < deadline:
+        click_count = api_context.get(f"/api/urls/{created['code']}").json()["click_count"]
+        if click_count == 2:
+            break
+        time.sleep(0.05)
+
+    assert click_count == 2
 
 
 def test_redirect_unknown_code_returns_404(api_context) -> None:

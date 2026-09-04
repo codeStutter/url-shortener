@@ -11,6 +11,11 @@ class CreateURLRequest(BaseModel):
         le=3650,
         description="Days until the link expires. 0 or omitted means it never expires.",
     )
+    custom_alias: str | None = Field(
+        default=None,
+        pattern=r"^[A-Za-z0-9_-]{3,30}$",
+        description="Optional custom short code. 3-30 chars: letters, digits, - or _.",
+    )
 
 
 class URLResponse(BaseModel):
@@ -22,3 +27,4 @@ class URLResponse(BaseModel):
     created_at: datetime
     expires_at: datetime | None
     click_count: int
+    active: bool

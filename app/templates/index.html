@@ -17,6 +17,9 @@
       <label for="expiry_days">Expires in (days, optional)</label>
       <input id="expiry_days" name="expiry_days" type="number" min="0" max="3650" placeholder="never" />
 
+      <label for="custom_alias">Custom alias (optional)</label>
+      <input id="custom_alias" name="custom_alias" type="text" pattern="[A-Za-z0-9_-]{3,30}" placeholder="my-link" />
+
       <button type="submit">Shorten</button>
     </form>
 
@@ -41,9 +44,13 @@
 
       const original_url = document.getElementById("original_url").value;
       const expiryRaw = document.getElementById("expiry_days").value;
+      const customAlias = document.getElementById("custom_alias").value;
       const body = { original_url };
       if (expiryRaw !== "") {
         body.expiry_days = Number(expiryRaw);
+      }
+      if (customAlias !== "") {
+        body.custom_alias = customAlias;
       }
 
       const response = await fetch("/api/urls", {

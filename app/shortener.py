@@ -9,6 +9,10 @@ handling entirely and keeps code generation O(1) with no retry loop.
 _ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 _BASE = len(_ALPHABET)
 
+# Custom aliases must not collide with our own top-level routes, or a short
+# link would shadow (or be shadowed by) part of the API/UI surface.
+RESERVED_CODES = {"api", "demo", "static", "docs", "redoc", "openapi.json", ""}
+
 
 def encode_base62(number: int) -> str:
     if number < 0:

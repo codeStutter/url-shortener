@@ -1,6 +1,7 @@
 # Testing Approach, Limitations, and Trade-offs
 
-> Evolves alongside the system. Current as of Scenario 1 (greenfield core).
+> Evolves alongside the system. Current as of Scenario 2 (brownfield reliability
+> hardening).
 
 ## Approach
 
@@ -22,7 +23,17 @@ Three layers, all runnable locally and in CI, all in Python:
    through, including an error-path test.
 
 All three layers share the `live_server` fixture, so "start the app, wait for
-`/api/health`, tear it down" is written once.
+`/api/health`, tear it down" is written once. A second fixture, `rate_limited_server`,
+spawns an independent server instance with a deliberately tight `CREATE_RATE_LIMIT` so the
+rate-limit test can actually trip the limiter without lowering it for every other test
+that shares `live_server`.
+
+Reliability-specific tests (`tests/api/test_reliability.py`) include a genuine concurrency
+test: `test_concurrent_requests_for_same_alias_only_one_succeeds` fires 10 simultaneous
+`POST /api/urls` requests for the same brand-new custom alias from a `ThreadPoolExecutor`
+and asserts exactly one succeeds — this is what actually validates the
+attempt-insert-and-catch-conflict design decision in `docs/scenarios/02-brownfield-reliability-hardening.md`,
+rather than just asserting it in prose.
 
 ## Running the suite
 
@@ -45,6 +56,14 @@ never blocks fast feedback on the majority of the test suite.
   swapping to Postgres later without touching route/business logic.
 - **No auth/authz.** Every API is open. Explicit scope cut for a prototype, not an
   oversight — flagged here rather than silently shipped.
+- **No schema migration tool.** `Base.metadata.create_all()` creates missing tables but
+  never alters existing ones, so a schema change like Scenario 2's new `is_active` column
+  requires a fresh dev DB (gitignored, disposable) rather than an in-place migration.
+  Alembic is the documented swap-in for a real deployment.
+- **Rate limiting and soft-deleted rows have no cleanup story.** The limiter's counters
+  live only in process memory (see Trade-offs below); soft-deleted rows accumulate with no
+  purge job. Both are fine at prototype scale and both are named here rather than
+  discovered later.
 - **No load/performance testing.** Correctness and behavior are covered; throughput and
   latency under load are not measured or claimed.
 - **Tests assume a free local port and the ability to spawn a subprocess.** This is normal
@@ -58,11 +77,15 @@ never blocks fast feedback on the majority of the test suite.
 
 ## Trade-offs
 
-- **SQLite over Postgres, in-memory rate limiting over Redis** (rate limiting is added in
-  Scenario 2): both chosen so anyone can clone the repo and run everything with zero
-  external services. Documented explicitly as the first two things to swap for a real
-  production deployment, precisely because they're the "prototype-friendly, not
-  production-scale" calls in this design.
+- **SQLite over Postgres, in-memory `slowapi` rate limiting over a Redis-backed limiter**:
+  both chosen so anyone can clone the repo and run everything with zero external services.
+  Documented explicitly as the first two things to swap for a real production deployment,
+  precisely because they're the "prototype-friendly, not production-scale" calls in this
+  design.
+- **Attempt-and-catch over check-then-insert for alias conflicts**: slightly less obvious
+  to read than a `SELECT` guard, but the guard has a real race under concurrency — see
+  `docs/scenarios/02-brownfield-reliability-hardening.md`. Correctness was judged to
+  outweigh the small readability cost.
 - **Real subprocess server over in-process `TestClient`**: slower per-session startup, but
   higher-fidelity tests (see above) — judged worth it given the assessment explicitly asks
   for Playwright tests, which are most valuable when exercising a real running server.
